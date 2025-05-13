@@ -1,0 +1,66 @@
+---
+title: "Working with Tabular Data"
+author: "Gupta, Rohan"
+date: "May 13th, 2025"
+output:
+  html_document:
+    df_print: paged
+subtitle: "Analysis of Wines"
+---
+
+## Question 1
+
+I created a new project for this .Rmd file, formatted it, and added my work to my private github repo.
+
+
+## Question 2
+
+```{r q2_loadCSV, echo=FALSE}
+# Start by loading the data using the Canvas URL
+df.wines <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/whitewines.csv",
+                 stringsAsFactors = FALSE)
+```
+
+After reading through the text that needs to be reproduced, I mapped out the calculations I needed to conduct:
+
+-   Total number of rows/observations
+-   Percent of wines with alcohol content over 11%
+-   Max alcohol content 
+-   Scatter plot showing sugar vs alcohol content
+
+I've completed the above calculations and assigned values to variables in the below code chunk.
+
+```{r q2_calculcations, echo=FALSE}
+# Total number of rows
+total_wines <- nrow(df.wines)
+
+# Percent of wines with alc > 11
+wines_above_11 <- sum(df.wines$alcohol > 11)/total_wines
+wines_above_11 <- round(wines_above_11 * 100, 1)
+
+# Max alc content 
+max_alc <- max(df.wines$alcohol)
+```
+
+
+After completing all the necessary calculations, I reproduced the formatted text and plot from Canvas below: 
+
+
+
+### **Analysis of Wines**
+
+There are a total of <mark>`r total_wines`</mark> wines in this data set. <mark>`r wines_above_11`</mark>% of the wines have an alcohol content over 11%. the highest alcohol content of any wine is <mark>`r max_alc`</mark>%. 
+
+The scatter plot below illustrates the correlation between alcohol and sugar content. 
+
+```{r q2_plot, echo=FALSE}
+# Plot sugar against alc content
+plot(x = df.wines$residual.sugar,
+     y = df.wines$alcohol,
+     xlab = "Sugar",
+     ylab = "Alcohol",
+     main = "Sugar vs Alcohol Content",
+     col.main = "darkblue",
+     type = "p")
+```
+
