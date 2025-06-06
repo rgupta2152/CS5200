@@ -1,3 +1,15 @@
+# Ignore everything
+*
+
+# Do not ignore nested folders (directories)
+!*/
+
+
+# Do not ignore just these filetypes
+!*.Rmd
+!*.R
+
+
 # History files
 .Rhistory
 .Rapp.history
