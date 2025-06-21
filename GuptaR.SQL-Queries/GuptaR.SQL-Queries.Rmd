@@ -1,0 +1,557 @@
+---
+title: "GuptaR.SQL-Queries"
+author: "Roha Gupta"
+date: "Summer Full 2025"
+output: html_notebook
+---
+
+```{r justForFun, echo=FALSE}
+# Just for fun; loop printed to the console so I don't need to type out each
+# question header
+
+# Commented this out after using it to keep things relevant
+
+# for (q in c(1:20)) {
+#   output <- paste0("## Question ", q)
+# 
+#   cat(output, "\n\n\n")
+# }
+
+```
+
+**NOTE FOR GRADER**: For the more complex queries, where I needed to subquery, use more complex joins, or implement a CTE, I ran those subqueries, joins, etc separately to visualize my next steps; I haven't kept those steps in the work below because they eventually became part of the final query. (Just adding this to explain my process)
+
+
+## Connecting to the Database
+
+Start by loading the DBI and RSQLite packages, then connecting to the locally downloaded database; here, I wanted to set the connection as a default so I didn't need to specify a connection address for every SQL chunk. I followed the [Module 5 Lesson](http://artificium.us/lessons/06.r/l-6-301-sqlite-from-r/l-6-301.html) to do this and implemented the opts_chunk() function from the knitr package (also used [this reference](https://stackoverflow.com/questions/45774168/set-global-database-connection-for-sql-chunk-in-rnotebook) after having some trouble getting default connection to work and found that I needed to name the R chunk "setup"):
+
+```{r setup}
+# Load the required packages
+library(RSQLite)
+library(DBI)
+# Connect to the database locally
+dbcon <- dbConnect(SQLite(), "OrdersDB.sqlitedb.db")
+
+# Set this connection to the default conn
+library(knitr)
+opts_chunk$set(connection = "dbcon")
+```
+
+
+## Question 1 
+
+*What are the names and phone numbers of all shippers, sorted by name?*
+
+I'm simply selecting the shipper names and numbers and order by the names.
+
+```{sql q1}
+
+SELECT 
+  ShipperName, 
+  Phone
+FROM Shippers
+ORDER BY ShipperName;
+
+```
+
+
+## Question 2 
+
+*What are the number of customer for each country? List the country and the number of customers renamed to 'NumCust'?*
+
+From the Customers entity, I'm grouping by Country and creating a count of total customer IDs for each group to create NumCust.
+
+```{sql q2}
+
+SELECT 
+  Country, 
+  Count(CustomerID) as NumCust
+FROM Customers
+GROUP BY Country
+LIMIT 10
+
+```
+
+
+## Question 3 
+
+*List the number of products by supplier ID and name, ordered from most to least, restricted to those suppliers who sell at least five products.*
+
+Here, I'm inner joining the Products and Supplier entities so I can get supplier names matched to their IDs. I'm grouping supplier name and ID, then getting a count of the number of products in each group. From here, I'm selecting groups using HAVING to filter and keep just those groups of supplier name and ID with at least 5 products. 
+
+```{sql q3}
+
+SELECT 
+  s.SupplierName, 
+  p.SupplierID, 
+  -- Getting the count of the already distinct PK ProductID
+  COUNT(p.ProductID) as NumProducts
+FROM Products p, Suppliers s
+-- Here, I'm joining Products and Supplier on SupplierID
+WHERE p.SupplierID = s.SupplierID
+GROUP BY p.SupplierID, s.SupplierName
+-- Filter to keep only groups with at least 5 products
+HAVING NumProducts >= 5
+ORDER BY NumProducts DESC;
+
+```
+
+
+## Question 4 
+
+*Who placed the most recent order (by order date)? List the customer's ID, customer name, contact name, and date.*
+
+Here, I'm joining Customers and Orders on CustomerID to get CustomerName for an order; then, I've selected the customer ID, name, contact name, and the max (or most recent) date as a string-formatted value using strfdate().
+
+```{sql q4}
+
+SELECT 
+  c.CustomerID, 
+  c.CustomerName,
+  c.ContactName, 
+  -- Formatting the date according to the table and selecting the most recent
+  MAX(strftime('%Y-%m-%d', o.OrderDate)) as OrderDate
+FROM Orders o, Customers c
+WHERE c.CustomerID = o.CustomerID;
+
+```
+
+
+
+## Question 5 
+
+*What are the total number of unique orders delivered by each shipper, ordered alphabetically by shipper name?*
+
+Here I'm joining the Orders and Shippers entities on ShipperID to get ShipperNames, then grouping by shipperID (which is already a PK and therefore distinct, however, I explicitly use distinct again to be sure orders are unique), I get a count of order IDs for each shipper and sort alphabetically by name.
+
+```{sql q5}
+
+SELECT 
+  s.ShipperName,
+  COUNT(DISTINCT o.OrderID) as UniqueOrderCount
+FROM Orders o, Shippers s
+WHERE o.ShipperID = s.ShipperID  
+GROUP BY o.ShipperID
+ORDER BY ShipperName;
+
+```
+
+
+## Question 6 
+
+*How many employees never worked with a single customer, i.e., they appear in the Employees table but not in the Orders table?*
+
+This is an example of an anti-join, where I want to find the rows that are in the Employees table but not in the Orders table. To do this, I need to first left join on EmployeeId (which gives me a table where all the rows from Employees are retained and only matching values from Orders is joined), and then filter to select just the rows where the FK (from Orders) is null. This returns a table with rows that are in the Employee table, but where this EmployeeID does not appear in the Orders table. 
+
+(Excuse the column name, these employees should be working harder)
+
+```{sql q6}
+
+SELECT 
+  COUNT(e.EmployeeID) as UselessEmployeeCount
+FROM Employees e
+LEFT JOIN Orders o ON (e.EmployeeID = o.EmployeeID)
+WHERE o.EmployeeID is null;
+
+```
+
+
+## Question 7 
+
+*How many products contain "Louisiana" at the beginning of the name of the product?*
+
+Here, I've used the LIKE operator to conduct text matching on the product name attribute; I'm basically matching with any product name that starts with Lousiana, followed by zero or more characters. From here, I'm just counting the number of rows in this resulting single column.
+
+```{sql q7}
+
+SELECT 
+  COUNT(ProductName) as NumProdsStartingWithLouisiana
+FROM Products
+-- Text matching to start with Lousiana, followed by zero or more chars
+WHERE ProductName LIKE 'Louisiana%';
+
+```
+
+
+## Question 8 
+
+*What is the total number of distinct countries to which at least one order was shipped?*
+
+Here, I've wrapped a subquery into a COUNT(*) to get the total number of rows from the subquery. In the subquery, I'm joining Customers and Orders on CustomerID and grouping by Country, then filtering to select only countries with at least one orderID. This subquery returns a table with containing Countries and the number of orders they've shipped. From this subquery result, I'm just counting the number of rows to return the total number of distinct countries to which one order was shipped. 
+
+```{sql q8}
+
+SELECT
+  -- Selecting everything from the subquery (only distinct since I specified col
+  -- name)
+  COUNT(Counts) AS NumCountriesWithAtLeastOneOrder
+FROM (
+  -- Starting the subquery
+  SELECT 
+    c.Country,
+    -- Getting the count of distinct orders
+    COUNT(o.OrderID) as Counts
+  FROM Orders o
+    JOIN Customers c ON (o.CustomerID = c.CustomerID)
+  -- Grouping by country so counts reflect orders per country
+  GROUP BY c.Country
+  HAVING COUNT(o.OrderID) >= 1
+); 
+
+```
+
+
+## Question 9 
+
+*What is the total amount (in terms of revenue) as well as the total number of orders sold by each employee? List the employee name, the total amount sold, and the total number of orders.*
+
+Here, I need to join three tables together to get the employee ID, their names, and the products they sold at which quantities and price. After I grouping by employee ID, I used SELECT to get the number of unique orders each employee was associated with as well as the sum of all the products of price * quantity (the amount they sold per order, accounting for the different prices and quantities of individual products in each order). This was then attached to the Employee first and last names.
+
+```{sql q9}
+
+SELECT 
+  e.FirstName,
+  e.LastName,
+  COUNT(DISTINCT od.OrderID) AS TotalNumOrders, 
+  -- This gets the numeric sum of all the revenues per employee; 
+  -- SUM(price * quantity) gets total price per order, including all products in
+  -- the order
+  SUM(p.Price * od.Quantity) AS TotalAmountSold
+FROM Orders o
+  JOIN OrderDetails od ON (o.OrderID = od.OrderID)
+  JOIN Products p ON (p.ProductID = od.ProductID) 
+  JOIN Employees e ON (o.EmployeeID = e.EmployeeID)
+-- Grouping by employee so COUNT and SUM are calculated per employee
+GROUP BY o.EmployeeID;
+
+```
+
+
+
+## Question 10 
+
+*Which supplier sells the least number of products but supplies at least one product?*
+
+In this query, I've used the WITH common table expression to be able to use the temporary result of one query as a reference for the second (main) query. In this CTE, I'm joining the Suppliers and Products tables on their supplierID, grouping by this ID, and getting the counts of products for each supplier where the count is at least one. This returns a table with supplier names and the number of products they are associated with, as long as they have at least one. 
+
+Next, using this resulting table, I select all the columns (both supplier name and their product count) where the product count is equal to the minimum product count in the table; this allows me to select *all* the rows where the product count is at a minimum (which I needed to do since we know there are more than one supplier with this minimum product count value).
+
+```{sql q10}
+
+-- Create the temp reference
+WITH ProdCounts AS (
+  SELECT 
+      COUNT(DISTINCT p.ProductID) AS ProductCount,
+      s.SupplierName
+  FROM Products p
+    JOIN Suppliers s ON (p.SupplierID = s.SupplierID)
+  -- Group by suppliers to get product count per supplier with COUNT
+  GROUP BY s.SupplierID
+  HAVING ProductCount >= 1
+) 
+
+-- Select all columns where product count equals the min from the reference
+SELECT *
+FROM ProdCounts
+WHERE ProductCount = (
+  SELECT MIN(ProductCount)
+  FROM ProdCounts
+  );
+
+```
+
+
+## Question 11 
+
+*Which product was ordered most often in terms of quantity ordered? List the product name and ID.*
+
+I've used a similar format as my query from the previous question here: in order to make sure that I'm not excluding any equal max values (like above, for example, where there are two different suppliers with the min product count), I've used WITH to create a temp result table containing the product name, ID, and total quantity of each product sold. I've used this result as as reference to select the product name and ID for rows where the total quantity is equal to the maximum total quantity value from the reference table. 
+
+```{sql q11}
+
+-- Another temp reference
+WITH ProdQuants AS(
+  SELECT 
+    p.ProductName,
+    p.ProductID,
+    SUM(o.Quantity) AS TotalQuant
+  FROM OrderDetails o
+    JOIN Products p ON (p.ProductId = o.ProductID)
+  -- Grouping by product ID so SUM above gets total quantities per product 
+  GROUP BY p.ProductID
+)
+
+SELECT 
+  ProductName,
+  ProductID
+FROM ProdQuants
+WHERE TotalQuant = (
+  -- Again, selecting where total quant matches the max from the reference
+  SELECT MAX(TotalQuant)
+  FROM ProdQuants
+);
+
+```
+
+
+## Question 12 
+
+*Which product generated the most revenue? List the product ID and name.*
+
+Again, a similar query format as the previous two questions; I create the temporary query to calculate the total revenue for each product (which is the total quantity multiplied by the price per unit), then select the product name and ID for the product where total revenue is equal to the maximum found in the temporary reference table. 
+
+```{sql q12}
+
+-- Another temp ref 
+WITH ProductRevenues AS ( 
+  SELECT 
+    p.ProductName,
+    p.ProductID,
+    SUM(o.Quantity) AS TotalQuant,
+    -- Kept this just to check my calculations as I go
+    p.price,
+    -- Grouped by product, so this returns total revenue per product (sum of all
+    -- quantities per product times price of product, which can be outside the 
+    -- sum since price remains the same for each grouped product)
+    p.Price * SUM(o.Quantity) AS TotalRevenue
+  FROM OrderDetails o
+    JOIN Products p ON (p.ProductId = o.ProductID)
+  GROUP BY p.ProductID
+)
+
+SELECT 
+  ProductName,
+  ProductID 
+FROM ProductRevenues
+WHERE TotalRevenue = (
+  -- Select where total rev is the max value from the reference
+  SELECT MAX(TotalRevenue)
+  FROM ProductRevenues
+);
+
+```
+
+
+## Question 13 
+
+*What is the total amount spent by all customers who do live in either Brazil, Mexico, or Canada?*
+
+Here, I use another WITH CTE to create a temp reference containing the country and total spent by all customers in that country (since the sum of the quantity of a product times the price of that product for each order - grouped by country - gives the total spent across all orders from a country), so long as the Counry is Brazil, Mexico, or Canada; this resulted in a table with the country and the total spent across all orders in that country in each row. 
+
+```{sql q13}
+
+SELECT 
+  c.Country,
+  -- Since this is grouped by country, this gets the total spent for all 
+  -- customers in a country (price is included within the sum since the price 
+  -- for each product is different)
+  SUM(od.Quantity * p.Price) AS TotalSpent
+FROM Customers c
+  JOIN Orders o ON (c.CustomerID = o.CustomerID)
+  JOIN OrderDetails od ON (od.OrderID = o.OrderID)
+  JOIN Products p ON (p.ProductID = od.ProductID)
+-- Filter by country name
+WHERE c.Country IN ("Brazil", "Mexico", "Canada") 
+GROUP BY c.Country;
+
+```
+
+
+## Question 14 
+
+*What is the difference in spending between the country to which the most was sold versus the country to which the least was sold?*
+
+
+
+```{sql q14}
+
+-- Another temp ref 
+WITH CountryRevenue AS (  
+  SELECT 
+    c.Country,
+    -- Again, this gets total revenue by country since I grouped by country
+    SUM(od.Quantity * p.Price) AS TotalSpent
+  FROM Customers c
+    JOIN Orders o ON (c.CustomerID = o.CustomerID)
+    JOIN OrderDetails od ON (od.OrderID = o.OrderID)
+    JOIN Products p ON (p.ProductID = od.ProductID)
+  GROUP BY c.Country
+)
+
+-- Select the difference between the max and min total revenue from the ref
+SELECT 
+  MAX(TotalSpent) - MIN(TotalSpent) AS SpendingDiff
+FROM CountryRevenue;
+```
+
+
+## Question 15 
+
+*Which country has the least number of customers?*
+
+A super similar format to question 10; here, I use a reference table to get the total customers per country, then query this reference to get all the rows where the total number of customers is equal to the minimum for this value in the reference. Again, this returns all the countries with a minimum value from the reference (not just one). 
+
+```{sql q15}
+
+-- Another ref table
+WITH CountryCustomerCount AS (
+  SELECT 
+    -- Gets the total customers per country
+    COUNT(CustomerID) as TotalCustomers,
+    Country
+  FROM Customers
+  GROUP BY Country
+)
+
+SELECT Country
+FROM CountryCustomerCount
+WHERE TotalCustomers = (
+  -- Filters to keep rows where TotalCustomers = min from reference 
+  SELECT MIN(TotalCustomers)
+  FROM CountryCustomerCount
+);
+
+
+```
+
+
+## Question 16 
+
+*Which employee generated the most revenue (in terms of "dollar amount" sold)?*
+
+Another CTE: the reference creates a table where each row contains an employee name and the total revenue they've produced over all order they're associated with. Then, the following query references this table and filters to select rows where the employee revenue is the max from the reference.
+
+```{sql q16}
+
+-- Temp ref
+WITH EmployeeRevenues AS (
+  SELECT
+    e.FirstName,
+    e.LastName,
+    -- Grouped by employee, so this returns total revenue per employee
+    SUM(od.Quantity * p.Price) AS EmployeeRevenue
+  FROM Employees e
+    JOIN Orders o ON (e.EmployeeID = o.EmployeeID)
+    JOIN OrderDetails od ON (o.OrderID = od.OrderID)
+    JOIN Products p ON (od.ProductID = p.ProductID)
+  GROUP BY e.EmployeeID
+)
+
+SELECT 
+  FirstName,
+  LastName
+FROM EmployeeRevenues
+WHERE EmployeeRevenue = (
+  -- Match where employee revenue is the max value from the reference
+  SELECT MAX(EmployeeRevenue)
+  FROM EmployeeRevenues
+);
+
+```
+
+
+
+## Question 17 
+
+*Which customers (name and ID) have never bought anything?*
+
+This basically means to find instances where CustomerID is in the CustomersTable but not in the Orders table. I'll use an anti-join for this; I'll first left join orders onto customers, then filter to select the customers where the FK is null (meaning there is no order information for that customer.)
+
+```{sql q17}
+
+SELECT
+  c.CustomerID,
+  c.CustomerName
+FROM Customers c
+  LEFT JOIN Orders o ON (c.CustomerID = o.CustomerID)
+WHERE o.CustomerID is null
+LIMIT 10;
+
+```
+
+
+## Question 18 
+
+*What is the average order total per country? List the country and the average order total.*
+
+Here, the reference table collects the order total per order, as well as the associated country. My following query groups the reference by Country, then returns the average of all order totals for each country.
+
+```{sql q18}
+
+WITH OrderTotalPerCountry AS (
+  SELECT
+    -- The total price of each order; this sums the quantity and price for EACH 
+    -- product in an order
+    o.OrderID,
+    SUM(od.Quantity * p.Price) AS OrderTotal,
+    c.Country
+  FROM Orders o
+    JOIN OrderDetails od ON (o.OrderID = od.OrderID)
+    JOIN Products p ON (p.ProductID = od.ProductID)
+    JOIN Customers c ON (c.CustomerID = o.CustomerID)
+  GROUP BY o.OrderID
+)
+
+SELECT 
+  Country,
+  -- Get the average order total for each grouped country
+  AVG(OrderTotal)
+FROM OrderTotalPerCountry
+GROUP BY Country
+LIMIT 10;
+
+
+```
+
+
+## Question 19 
+
+*To which customer was the most recent order sent? List the Order ID, customer name, and country to which the order was shipped.*
+
+This query is super similar to question 4; I followed almost the exact same format, except since I wanted to calculate the max/most recent date, but not include it in the result, I first selected the columns I'd want to display, then used a subquery to filter rows where Orderdate matches the max order date. This lets me make the 'calculation' to get the most recent date, but not have to select it in the result.
+
+```{sql q19}
+
+SELECT 
+  o.OrderID, 
+  c.CustomerName,
+  c.Country
+FROM Orders o 
+  JOIN Customers c ON (c.CustomerID = o.CustomerID)
+WHERE o.OrderDate = (
+  -- Formatting the date according to the table and selecting the most recent
+  SELECT
+    MAX(strftime('%Y-%m-%d', OrderDate)) as OrderDate
+  FROM Orders
+);
+  
+```
+
+
+## Question 20 
+
+*From how many different (unique) suppliers do the products come from?*
+
+Here, I'm simply selecting a count of the distinct suppliers from the products table.  
+
+```{sql q20}
+
+SELECT 
+  COUNT(DISTINCT SupplierID) AS UniqueSuppliers
+FROM Products;
+
+
+```
+
+
+## Close the Connection
+
+Finally, I close my connection to the database.
+
+```{r}
+# Close the connection
+dbDisconnect(dbcon)
+
+```
+

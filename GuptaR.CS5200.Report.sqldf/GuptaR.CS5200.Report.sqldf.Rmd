@@ -1,0 +1,393 @@
+---
+title: 'ASSIGNMENT 06.2: Query Tabular Data with SQL'
+author: "Rohan Gupta"
+date: "June 18th, 2025"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+[Reference for Setting Default Chunk Options](https://rmarkdown.rstudio.com/lesson-3.html)
+
+```{r setup, echo=FALSE}
+# Load knitr for default chunk settings and kable
+library(knitr)
+# Set echo to false and supress warnings
+opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+
+```{r libraries}
+# Load kableExtra for styling
+library(kableExtra)
+# Load the sqldf package
+library(sqldf)
+```
+
+
+## Analysis of Patient Data
+
+
+```{r loadData}
+# For the sake of keeping the knitted file clean and only relevant to the format
+# in the assignmetn example, all my code explanations are within chunks as
+# comments. Chunk names describe which part of the analysis each chunk is
+# responsible for.
+
+
+
+# Start by loading in the data
+df <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/diabetes_data.csv",
+               header = TRUE,
+               stringsAsFactors = FALSE)
+```
+
+
+```{r totalRecords}
+# Create the total patient records query; I'm simply getting a row count of the
+# entire df
+ptRecsQ <- "
+SELECT 
+  COUNT(*) AS TotalPtRecs
+FROM 'df'
+"
+
+# Pass the query to sqldf
+ptRecs <- sqldf(ptRecsQ)
+
+# Get the val from the resulting df 
+ptRecsVal <- ptRecs$TotalPtRecs[1]
+```
+
+
+```{r meanAge}
+# Create queries getting the average age for the entire dataset, then with a
+# WHERE clause filtering by sex
+overallMeanQ <- "
+SELECT
+  AVG(Age) AS OverallAvgAge
+FROM 'df'
+"
+
+maleMeanQ <- "
+SELECT
+  AVG(Age) AS MaleAvgAge
+FROM 'df'
+WHERE Sex = 0
+" 
+
+femaleMeanQ <- "
+SELECT
+  AVG(Age) AS FemaleAvgAge
+FROM 'df'
+WHERE Sex = 1
+" 
+
+# Execute each query; these return as single col single row dfs (same as the
+# first query)
+overallMean <- sqldf(overallMeanQ)
+
+maleMean <- sqldf(maleMeanQ)
+
+femaleMean <- sqldf(femaleMeanQ)
+
+
+# Get the value from each of the dataframes
+overallMeanVal <- overallMean$OverallAvgAge[1]
+maleMeanVal <- maleMean$MaleAvgAge[1]
+femaleMeanVal <- femaleMean$FemaleAvgAge[1]
+
+```
+
+
+```{r fruitsAndVeg}
+# Here, I'm querying to just get the number of patients that eat both fruits and
+# veggies; in the markdown, I'll divide this by the total patient records value
+fruitsVegQ <- "
+SELECT
+  COUNT(*) AS FruitsAndVegCount
+FROM 'df'
+WHERE
+  Fruits = 1
+  AND Veggies = 1
+"
+
+# Execute the query
+fruitsVeg <- sqldf(fruitsVegQ)
+
+# Get the val
+fruitsVegVal <- fruitsVeg$FruitsAndVegCount[1]
+
+```
+
+
+```{r smokers}
+# Here, I'm getting the smokers count, which I'll also divide bu the total
+# patients in the markdown
+smokersQ <- "
+SELECT
+  COUNT(*) AS SmokerCt
+FROM 'df'
+WHERE Smoker = 1
+"
+
+# Execute the query
+smokers <- sqldf(smokersQ)
+
+# Get the val
+smokersVal <- smokers$SmokerCt[1]
+
+```
+
+
+```{r bmiOver26}
+# Query to get the number of pts with a BMI > 26 and no phys activity
+bmiQ <- "
+SELECT
+  COUNT(*) AS BmiNoPA
+FROM 'df'
+WHERE
+  BMI > 26
+  AND PhysHlth = 0
+"
+
+bmi <- sqldf(bmiQ)
+
+bmiVal <- bmi$BmiNoPA[1]
+
+```
+
+
+
+The data set has <mark>`r ptRecsVal`</mark> patient records. Males were coded in the data as 0 while females were coded as 1. The mean age for all patients was <mark>`r round(overallMeanVal, 2)`</mark> years (female <mark>`r round(femaleMeanVal, 2)`</mark>, male <mark>`r round(maleMeanVal, 2)`</mark>). <mark>`r signif((fruitsVegVal / ptRecsVal) * 100, 3)`</mark>% of all patients reported eating both fruits and vegetables. <mark>`r signif((smokersVal/ptRecsVal) * 100, 3)`</mark>% of all patients were smokers. <mark>`r signif((bmiVal / ptRecsVal) * 100, 3)`</mark>% of all patients with a BMI over 26 did not report any physical activity.
+
+
+
+## Summary of Health Characteristics
+
+```{r summaryTableMale}
+# To create this summary table, I've decided to use sqldf() queries to first
+# retrieve each piece of data I need, then combine everything into an r
+# data.frame. 
+
+# I already have a queried value for average age (for both genders). For the
+# following queries, I'll get the value for each constraint (for example, the
+# actual number value of pts diagnosed with diabetes) and divide this value by
+# the total number of pts inside the final df.
+
+
+# In this chunk, I'll be starting with the metrics for male patients in the df;
+# I've set the names of the cols to the name of the vars so I can select use the
+# same string for subsetting in the next chunk
+
+
+# Diabetes query, df, and value
+diabQ <- "
+SELECT 
+  COUNT(*) AS diabQ
+FROM 'df'
+WHERE 
+  Diabetes = 1
+"
+
+
+# High chol query, df and value
+cholQ <- "
+SELECT 
+  COUNT(*) AS cholQ
+FROM 'df'
+WHERE HighChol = 1
+"
+
+
+# Here, I use a subquery to filter the rows where BMI is greater than 2 SDs +
+# BMI mean; this subquery becomes a single value used to filter using WHERE, and
+# the number of rows where this condition is satisfied is returned by COUNT(*).
+# I'll also note that this is basically the rows where z-score = 2, so that's
+# what I've named the row in the final df
+bmiSdQ <- "
+SELECT
+  COUNT(*) AS bmiSdQ
+FROM 'df'
+WHERE BMI > (
+  SELECT 
+    AVG(BMI) + 2 * STDEV(BMI)
+  FROM 'df'
+)
+"
+
+
+# No physical activity
+noPhysQ <- "
+SELECT 
+  COUNT(*) AS noPhysQ
+FROM 'df'
+WHERE PhysHlth = 0
+"
+
+
+# High bp
+highBpQ <- "
+SELECT 
+  COUNT(*) AS highBpQ
+FROM 'df'
+WHERE HighBP = 1
+"
+```
+
+
+```{r maleVals}
+# Create a named list of the character string queries from above
+queries <- list(diabQ = diabQ, 
+                cholQ = cholQ, 
+                bmiSdQ = bmiSdQ, 
+                noPhysQ = noPhysQ, 
+                highBpQ = highBpQ)
+
+# Initialize an empty list where I'll store the male queries
+maleQueries <- list()
+
+# Loop over the generic queries
+for (q in 1:length(queries)) {
+  
+  # For each generic query, I'll add the condition to filter for just male pts
+  maleQueries[[q]] <- paste0(queries[[q]], " AND Sex = 0")
+  
+  # Here, I extract the variable name for each element in the named list (which
+  # will serve as the base of the new variable name for the new 'male' query)
+  qName <- names(queries)[q]
+  
+  # Assign a var for the output of the male query being passed to sqldf()
+  qExecute <- sqldf(maleQueries[[q]])
+  
+  # Subset to extract the value from the single value dfs (col = qName, row = 1)
+  qVal <- qExecute[, qName][1]
+  
+  # And finally assign a var name (the generic query var name + "M" for male) to
+  # the output of the above male query
+  assign(paste0(qName, "M"), qVal)
+
+  
+  # This loop returns 5 new variables, all df's containing the result for each
+  # generic query for male patients
+}
+
+```
+
+
+
+```{r femaleVals}
+# Here, I'm using the same generic queries and loop format as above, but
+# changing the added condition for each query to filter for female pts. I'm also
+# assigning the results to output vars called genericVarName + "F"
+
+# Initailize an empty list to store female queries
+femaleQueries <- list()
+
+
+# Same loop, just shortened comments
+for (q in 1:length(queries)) {
+  # Change the condition to filter for Female pts
+  femaleQueries[[q]] <- paste0(queries[[q]], " AND Sex = 1")
+  
+  # Get the generic q name
+  qName <- names(queries)[q]
+  
+  # Get the output of the female query as a df
+  qExecute <- sqldf(femaleQueries[[q]])
+  
+  # Subset by col name (same as query name) to get the first row val
+  qVal <- qExecute[, qName][1]
+  
+  # Assign the value to queryF var
+  assign(paste0(qName, "F"), qVal)
+}
+
+```
+
+
+
+```{r createFinalDf}
+# Here, I'm initializing the empty final table
+finalDf <- data.frame(
+  Male = numeric(6),
+  Female = numeric(6)
+)
+
+# Assigning row names for the df
+rownames(finalDf) <- c("Average Age",
+                       "Diabetes (%)",
+                       "High Cholesterol (%)",
+                       "ZScore > 2 (%)",
+                       "No Physical Activity (%)",
+                       "High Blood Pressure (%)")
+
+
+
+# Get the male and female value variable names as strings (doing this manually
+# since I already created the vars with assign())
+mValNames <- paste0(names(queries), "M")
+fValNames <- paste0(names(queries), "F")
+
+# Add the mean age for male and female to their respective vectors (so I can
+# easily pass everything in order to the df in the next loop)
+mValAll <- c("maleMeanVal", mValNames)
+fValAll <- c("femaleMeanVal", fValNames)
+
+# Loop over the vars from 
+for (row in 1:nrow(finalDf)) {
+  # Populate the first col (Male) with the values from the male extracted values
+  # using their variable names; each row index already corresponds to the index
+  # of values in ValNames
+    # From reference: using get() to get the value from the string var
+  finalDf[row, 1] <- get(mValAll[row])
+  
+  # Same for female values
+  finalDf[row, 2] <- get(fValAll[row])
+  
+}
+
+# Format the final table with rounding
+# Age to 2 significant digits
+finalDf[1, ] <- signif(finalDf[1, ], 3)
+# Divide each val by total pt count, round to 2 decimals
+finalDf[2:6, ] <- round((finalDf[2:6, ] / ptRecsVal) * 100, 2)
+
+
+# Load just to run pipe operator below
+library(magrittr)
+
+# Display the table using kable (from kable docs)
+finalDf %>%
+  kbl(caption = "Patient Metrics by Gender") %>%
+  kable_classic(c("striped", "hover")) %>% 
+  kable_styling(font_size = 20, full_width = TRUE)
+
+```
+
+
+
+
+
+
+
+*"maleVals" Chunk References:*
+
+[Reference to Get Var Names using a Named List](https://stackoverflow.com/questions/42227416/extract-variable-names-from-list-or-vector-in-r)
+
+[Reference for Getting Single Element Name from Named List](https://stackoverflow.com/questions/9048375/extract-names-of-objects-from-list)
+
+[Reference for Dynamic Variable Names in a Loop Using assign()](https://stackoverflow.com/questions/16566799/change-variable-name-in-for-loop-using-r)
+
+
+*"createFinalDf" Chunk References:*
+
+[Reference for Setting DF Row Names](https://stat.ethz.ch/R-manual/R-devel/library/base/html/row.names.html)
+
+[Reference for Getting Values from String Vars with get()](https://stackoverflow.com/questions/3971844/access-variable-value-where-the-name-of-variable-is-stored-in-a-string)
+
+[Reference for Adding Value to the Start of a Vector](https://stackoverflow.com/questions/60762376/adding-element-to-beginning-of-the-vector-in-r)
+
+
+
