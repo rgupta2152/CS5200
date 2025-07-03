@@ -1,0 +1,397 @@
+---
+title: "Designing the DB Schema"
+author: "Rohan Gupta"
+date: "Summer Full 2025"
+output: pdf_document
+---
+
+```{r setup, echo=FALSE, warning=FALSE, eval=FALSE, message=FALSE}
+# Setup the markdown so that none of the code chunks or their outputs are shown
+# in the knitted file (since that needs to only contain the relations from the
+# decomp)
+library(knitr)
+opts_chunk$set(echo = FALSE, eval = FALSE)
+```
+
+```{r references, echo=FALSE, eval=FALSE}
+# I've created this separate section for the references I've used within
+# document ; these are just for my own and the grader's reference, and are
+# hidden within this chunk when the document gets knit so that just my design
+# and normalization approach are seen (and no code or additional info).
+
+# [Reference for Markdown Arrows](https://gist.github.com/mavaji/19792cb4d77812854d4b11db68c1ffaf)
+# [Reference to Determine Whether to Include Surrogate for Single Attribute Entity](https://dba.stackexchange.com/questions/65336/relational-model-design-entity-with-one-attribute)
+# [Reference for Subsetting df by Col Name](https://stackoverflow.com/questions/75179126/r-studio-how-do-i-subset-only-columns-that-match-a-list)
+# [Reference for Converting Vector Object to Single String](https://www.statology.org/r-convert-vector-to-string/)
+# [Reference for unlist()](https://sparkbyexamples.com/r-programming/unlist-function-in-r/)
+# [Reference for str_split()](https://stringr.tidyverse.org/reference/str_split.html)
+# [Reference to Embed PDF Image](https://stackoverflow.com/questions/39173714/r-markdown-can-i-insert-a-pdf-to-the-r-markdown-file-as-an-image)
+
+
+```
+
+## Functional Dependencies
+
+```{r loadData, echo=FALSE, eval=FALSE}
+# Load the data; this is what I visualized in a new RStudio pane
+db <- read.csv("restaurant-visits-139874.csv")
+
+# I have this just in case I wanted to revert the db I'm exploring back to it's
+# original form
+dbTest <- db
+```
+
+Here, I'll be exploring the functional dependencies (or a relationship between two columns where one directly determines the value of the other) from the original .csv of data. My initial method for this section was to simply spend time visually parsing the data (after loading the .csv into RStudio, I visualized the entire data within the RStudio Source Editor pane) before then moving onto some code-based exploration for the next decomposition steps.
+
+The naming conventions for columns within the table provided a great starting point for my identification of FD's (columns with "ID" included in the name were essentially superkeys for their associated attributes); this made it relatively straightforward to identify the functional dependencies between ID attributes and the values they directly determine. Below are the FD's I identified, where the higher level bullet point is the *determinant* attribute and everything within that level are the *dependent* attributes.
+
+**Functional Dependency List:**
+
+-   VisitID → Restaurant, ServerEmpID, VisitDate, VisitTime, MealType, PartySize, Genders, WaitTime, CustomerEmail, FoodBill, TipAmount, DiscountApplied, PaymentMethod, orderedAlcohol, AlcoholBill
+
+-   ServerEmpID → ServerName, StartDateHired, EndDateHired, HourlyRate, ServerBirthDate, ServerTIN
+
+-   CustomerEmail → LoyaltyMember, CustomerName, CustomerPhone
+
+Just some notes on specific attributes within the FD's above:
+
+-   Within *VisitID*, I've decided that the attribute from within the *CustomerEmail* dependency is in fact *CustomerEmail*. What I mean by this is that, although *CustomerPhone* could have also been picked as the 'natural' key and determinant for its dependent attributes, I feel that a customer's email is much less likely to be changed than a phone number (something I explain further within my ERD later in this segment). This thought process applied for why I chose *CustomerEmail* to be the determinant for LoyaltyMember, CustomerName, and CustomerPhone in that third FD above.
+
+-   I'll focus on this more in the actual building of my schema later on, however, I think it's important to note that *LoyaltyMember* essentially determines whether a customer has name, phone, and email data associated with them. Essentially, the 'Visit' table I will build in my schema will contain this attribute, and if the value is TRUE for a certain visit, that means there is data populating those three customer information attributes for that visit. Only "known" customers, or those who are loyalty members, will populate that table; any non-loyalty member, anonymous customers do not need to be saved to this database and have no identifiying info for those attrbutes.
+
+-   It's also good to note here that the *Restaurant* attribute is not a key for any other attributes in the dataset. This becomes important and is something I discuss more when building the schema and creating tables for this database.
+
+## Decompose to 3NF
+
+### General Workflow
+
+When making decisions about how to decompose the data, I kept a couple of things in mind that I think I should emphasize to help describe my thought and decision making process more clearly:
+
+First and foremost, I wanted to make sure that my decisions always kept the original data in mind. This means that, behind the structure decisions I made in this step, I am always thinking about how I can model my database *given the structure of data in the CSV*. This being said, I did find that certain 'changes' needed to be made to the structure of the original data, which I've first implemented within the ERD and then realized later when architecting the database.
+
+Before coming to these conclusions, however, I needed to answer a few of my own questions about the data and confirm that the primary keys (as well as their relationships with dependent attributes) are as I believe they are.
+
+### Understanding the Data & Identifying NAs
+
+I first wanted to make sure I was aware of the columns/attributes from the original data that included NA/NULL values so I knew which attributes I should keep NULLABLE and which I should set to NOT NULL. I also noted the existence of sentinel values, which were mentioned later in the assignment instructions; I needed to be aware of these kinds of values since my plan is to script those values as NA or NULL values in my data cleaning steps. I get much more in-depth in my workflow explanation around identifying these sentinel values and how I deal with them within that cleanup script, however, for now I at least need to know which columns contain them so I can keep that in the back of my mind when building my ERD (and of course for the next step of realizing the database).
+
+```{r ExploreNAs, echo=FALSE, eval=FALSE}
+# Before starting to decompose and normalize the data, I first wanted to explore
+# and understand the data some more, albeit still on a relatively basic level:
+
+# I noticed some columns with empty cells that weren't necessarily populated
+# will NULL or NA values that anyNA() itself could identify. Here, I try to see
+# which columns actually do contain these empty/NA values so I can set their
+# attributes to NULLABLE later on:
+
+# Tables with normal NA values or empty strings
+  # sapply() iterates over each col as a vector
+  # I'm counting NAs or empty strings anywhere in each column
+sapply(db, function(col) {
+  sum(anyNA(col) | (col == "")) 
+})
+
+# Here, I do some super simple parsing of the columns where I noted possible
+# sentinel values. Again, this is expanded upon in part C, but I wanted to note
+# some of these sentinel containing columns now for the sake of knowing whether
+# they should be nullable or not
+
+# These are the suspect columns for sentinel values
+suspectColNames <- c("ServerEmpID", "ServerName", "StartDateHired",
+                     "EndDateHired", "HourlyRate", "ServerBirthDate", 
+                     "ServerTIN", "WaitTime")
+
+# This just subsets the df to include data from just the suspect columns
+suspectCols <- subset(db, select = names(db) %in% suspectColNames)
+
+# Here, I'm viewing all the values from each of these columns and visually
+# parsing through them to see if I can identify sentinel values
+sapply(suspectCols, function(col) {
+  levels(as.factor(col))
+})
+```
+
+After conducting some more EDA, these are the columns I've initially identified to have either NA values, empty string values, or character values that represent NAs (sentinel values):
+
+-   NAs or Empty Strings:
+    -   ServerEmpID
+    -   EndDateHired
+    -   ServerBirthDate
+    -   ServerTIN
+    -   CustomerName
+    -   CustomerPhone
+    -   CustomerEmail
+-   Potential Sentinel Values and Character Placeholders:
+    -   ServerName
+    -   StartDateHired
+    -   HourlyRate
+    -   WaitTime
+
+I'll explore these columns further when populating the database in further steps, but for now its enough to know that these columns should be nullable to fit the data currently within the .csv.
+
+### Relationship Decisions
+
+At this point, I'm looking closely at the superkeys from the FDs above and am making some early decision about which attributes will serve as PKs in their respective entities for my final schemas.
+
+-   ***Restaurant*** **Column:**
+    -   I've noted that the *Restaurant* column does not have any dependent attributes, and therefore spent some extra time looking through the values in this column to make a decision on how to structure the entity that holds this attribute. After doing some reading on benefits and downfalls of a single attribute entity (check references), I've decided to **add an autoincremented ID column to act as the surrogate key referencing restaurant names**. This turns the Restaurants entity into a one with two attributes, and assigning a small integer value to each longer character Restaurant value comes with performance benefits for the final database.
+    
+- ***CustomerEmail:***
+  - For the same reason as I've decided to create a RestaurantID surrogate for the Restaurants entity, I am also going to **create a CustomerID autoincremented surrogate PK for the Customers entity**.  
+
+```{r ExploreData, echo=FALSE, eval=FALSE}
+# I also wanted to check for the uniqueness of values in the Restaurant col (to
+# make sure it can vaibly serve as a PK)
+restLevs <- levels(as.factor(db$Restaurant))
+restCount <- table(db$Restaurant)
+restLevs
+
+```
+
+
+- ***Restaurant & ServerEmpID:***
+  - I've also found that there is a many-to-many relationship between Restaurant and ServerEmpID. A few of the servers within the data are each associated with two different Restaurants, meaning that I'll need to **create a junction table between the Restaurants and Servers entities to resolve this M:N relationship**.
+
+
+```{r checkFDs, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
+# Load dplyr for some more EDA
+library(dplyr)
+
+# When parsing the data, I noticed that there was a possibility that Restaurant
+# could determine HourlyRate for a server. I wanted to make sure that there
+# isn't a functional dependency between these two before creating my schema:
+restRateFD <- db %>% 
+  group_by(Restaurant) %>% 
+  summarise(uniqueRates = n_distinct(HourlyRate)) %>% 
+  filter(uniqueRates > 1)
+restRateFD
+
+# This returned a couple of restaurants with more than one wage associated with
+# it, meaning there is no FD between the two
+
+```
+
+```{r checkMtoM, echo=FALSE, eval=FALSE}
+# If Restaurant (or RestaurantID) is going to be the PK for my Restaurants
+# entity, I need to check for many-to-many relationships between this PK and its
+# dependent attributes (especially FKs to another column)
+
+# Here, I'm checking for existence of a M:N relationship between Restaurant (PK)
+# and ServerEmpID (FK for Server entity)
+restEmployees <- db %>% 
+  # Remove NAs
+  filter(!is.na(ServerEmpID)) %>% 
+  group_by(ServerEmpID) %>% 
+  # Count the number of unique restaurants for each server, and show the vector
+  # of unique Restaurants per employee as a single string (reference)
+  summarise(numOfRestaurants = n_distinct(Restaurant),
+            RestaurantNames = toString(unique(Restaurant))) %>% 
+  # Filter to see if there are any servers associated with more than one
+  # restaurant
+  filter(numOfRestaurants > 1)
+restEmployees
+
+# There are many to many between some restaurants and employees, which I suppose
+# makes sense since all the restaurants are within the same management group and
+# some employees might be working between restaurants
+
+# This means I need to create a junction table between Restaurant and
+# ServerEmpID
+
+
+```
+
+
+### Handling Categorical Attributes
+
+I've identified the following attributes to consist completely of categorical variables, for which I've **decided to create lookup tables for** (as opposed as simply setting them as categorical fields):
+
+- *MealType* Categories:
+  - Breakfast
+  - Dinner
+  - Lunch
+  - Take-Out
+- *PaymentMethod* Categories:
+  - Cash
+  - Credit Card
+  - Mobile Payment
+
+```{r catCols, echo=FALSE, eval=FALSE}
+# I've also noted some columns with a set number of categorical variables. After
+# parsing through the entire dataset (with each col as a factor), these are the
+# columns with categorical vars
+catcolNames <- c("MealType", "PaymentMethod") 
+
+catCols <- subset(db, select = names(db) %in% catcolNames)
+
+sapply(catCols, function(col) {
+  table(col)
+})
+
+```
+
+I've also noted that the current format of data inputted to the *Gender* column **breaks First Normal Form**, since it's basically just one long string of multiple values. As a refresher, 1NF states that "each attribute in the table can only hold a single value" and that "each row must represent a single, distinct entity or concept". By having several customer genders from the visiting party in a single string, the values are not atomic/indivisible. I'll tackle expanding each of these values into individual genders assigned to party members for each visit when I populate my db, however, for now, I have decided to **create a separate and new entity that connects the VisitID to the Genders within the visiting party**; this new entity will hold the a composite PK of VisitID (also the FK to the Visits entity) and GuestNumber (an index for each guest in the party), as well as the determinant Gender attribute to contain the gender for each guest. This setup now satisfies 1NF (up to 3NF), since all values are atomic and there are no transitive dependencies). Another note is that, even though Gender will essentially turn into a categorical variable and I have chosen to create lookup tables for the other categorical vars in this dataset, I will be assigning categorical fields to this attribute to maintain some overall simplicity.
+
+
+```{r genderLevels, echo=FALSE, eval=FALSE, warning=FALSE, message=FALSE}
+# Load for str_split()
+library(stringr)
+
+# Just wanted to view the different individual values from within the entire
+# Genders column.
+
+# str_split returns a list of characters for each row/element in the Genders col
+# unlist() turns this list into a single vector
+# unique() essentially gets the levels from this vector
+genderLevels <- unique(unlist(str_split(db$Genders, "")))
+genderLevels
+
+```
+
+
+## Final 3NF Relations
+
+Taking into account all the findings and justifications from the above sections, this is what I've decomposed the original FDs into:
+
+- Restaurants(RestaurantID, RestaurantName)
+
+- RestaurantServers(ServerAssignmentID, RestaurantID, ServerEmpID)
+
+- Servers(ServerEmpID, ServerName, StartDateHired, EndDateHired, HourlyRate, ServerBirthDate, ServerTIN)
+
+- Visits(VisitID, RestaurantID, ServerAssignmentID, CustomerID, VisitDate, Visittime, MealTypeID, PartySize, WaitTime, LoyaltyMember, FoodBill, TipAmount, DiscountApplied, PaymentMethodID, orderedAlcohol, AlcoholBill)
+
+- PartyGenders(VisitID, GuestNumber, Gender)
+
+- LoyaltyCustomers(CustomerID, CustomerEmail, CustomerPhone, CustomerName)
+
+- MealTypes(MealTypeID, MealType)
+
+- PaymentMethods(PaymentMethodID, MethodType)
+
+
+
+## Normalized ERD in IE Notation
+
+
+```{r image-ref-for-in-text, echo = FALSE, message=FALSE, fig.align='center', out.width='1\\linewidth'}
+# From my reference; this has been commented out once knitted so the file runs
+# after submission
+knitr::include_graphics("PracticumI-ERD.pdf")
+```
+
+
+
+## Entity Descriptions
+
+
+### Restaurants
+
+- **Summary:** A lookup table for every restaurant location.
+  - **PK:** *RestaurantID* (surrogate)
+  - **Attributes:** 
+    - *RestaurantName*
+  - **Relationships:**
+    - One restaurant hosts many visits
+    - One restaurant can employ many servers
+
+
+### RestaurantServers
+
+- **Summary:** A junction table to handle the many-to-many between Servers and Restaurants
+  - **PK:** *ServerAssignmentID* (surrogate)
+  - **FKs:**
+    - *RestaurantID* &rarr; Restaurants
+    - *ServerEmpID* &rarr; Servers 
+  - **Relationships:**
+    - One restaurant can host many visits
+
+
+### Servers
+
+- **Summary:** Contains all the servers and their dependent information.
+  - **PK:** *ServerEmpID*
+  - **Attributes:**
+    - *ServerName*
+    - *StartDateHired* (NULLABLE)
+    - *EndDateHired* (NULLABLE)
+    - *HourlyRate*
+    - *ServerBirthDate* (NULLABLE)
+    - *ServerTIN* (NULLABLE)
+  - **Relationships:**
+    - One server can work at many restaurants
+
+
+### Visits
+
+- **Summary:** The main table containing all info for each individual restaurant visit.
+  - **PK:** *VisitID*
+  - **FKs:**
+    - *RestaurantID* &rarr; Restaurants (NOT NULL)
+    - *ServerAssignmentID* &rarr; RestaurantServers (NULLABLE to accommodate take-out orders)
+    - *CustomerID* &rarr; LoyaltyCustomers (NULLABLE for any anonymous/non-loyalty member customers)
+    - *MealTypeID* &rarr; MealTypes (NOT NULL)
+    - *PaymentMethodID* &rarr; PaymentMethods (NOT NULL)
+  - **Attributes:**
+    - *VisitDate* (NULLABLE) 
+    - *VisitTime* (NULLABLE)
+    - *PartySize*
+    - *WaitTime*
+    - *LoyaltyMember*
+    - *FoodBill*
+    - *TipAmount*
+    - *DiscountApplied*
+    - *orderedAlcohol* (BOOL needs to be converted from current char format)
+    - *AlcoholBill*
+  - **Relationships:**
+    - One visit hosts many genders
+    - One visit has one meal type
+    - One visit has one payment type
+    - *ServerAssignmentID* is optional/nullable for takeout orders or orders where server information is missing/NA
+    - *CustomerID* is optional to account for non-loyalty member customers, but each customer can otherwise visit once at a time 
+
+
+### LoyaltyCustomers
+
+- **Summary:** Only the loyalty-member customers and their name, email, and phone (anonymous customers don't need to be recorded and don't have this information).
+  - **PK:** *CustomerID* (surrogate)
+  - **Attributes:**
+    - *CustomerEmail* (NOT NULL)
+    - *CustomerPhone* (NOT NULL)
+    - *CustomerName* (NOT NULL)
+  - **Relationships:**
+    - One customer can visit many times
+
+
+### MealTypes
+
+- **Summary:** Lookup table for the categorical MealType attribute
+  - **PK:** *MealTypeID* (surrogate)
+  - **Attributes:** 
+    - *MealType* {Breakfast, Lunch, Dinner, Take-Out}
+  - **Relationships:**
+    - Each visit is associated with only one meal type
+
+
+### PaymentMethods
+
+- **Summary:** Lookup table for the categorical PaymentMethod attribute
+  - **PK:** *PaymentMethodID* (surrogate)
+  - **Attributes:** 
+    - *MethodType* {Cash, Credit Card, Mobile Payment} (categorical field instead of another lookup)
+  - **Relationships:**
+    - Each visit has only one payment type
+
+
+### PartyGenders
+
+- **Summary:** Lookup table to accommodate for the categorical gender col (once it's split into individual values)
+  - **Composite PK:** *(VisitID, GuestNumber)*
+    - I've chosen a composite key here instead of another surrogate to keep things simple and because these two attributes together already determine gender
+  - **Attributes:**
+    - *VisitID* (FK &rarr; Visits) 
+    - *GuestNumber* (just an index value for each guest in the party)
+    - *Gender* {u, f, m, n} (again, categorical field instead of another lookup)
+  - **Relationships:**
+    - Many genders are associated with one visit
+
