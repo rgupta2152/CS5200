@@ -20,8 +20,22 @@
 # instead of with double-dashes within the quotes, just for easier reading.
 
 
+
+# IMPORTANT: When populating the database, I found out that I needed to be
+# careful about NA vs NULL between R and MySQL. For these table creations, I'm
+# keeping in mind that certain attributes with missing values in the data (or
+# sentinels that I convert to missing vals later) need to be nullable. However,
+# I'm going to populate the db with an *R script*, which means I need to be wary
+# of the correct missing value placeholder to use. In the R script for Part E, I
+# convert the sentinels to NA to follow R practices. Then, when I write my batch
+# INSERTs, I convert all those NA values into NULL values, since that is the
+# equivalent missing placeholder in SQL
+
+
+
 # References:
 
+# [Reference for NA to NULL b/w R and SQL](https://stackoverflow.com/questions/56828818/loading-na-values-from-r-to-sql)
 # [Reference for Connecting to MySQL DB](https://stackoverflow.com/questions/50544230/connecting-to-mysql-from-r)
 # [Reference for Checking DB Connection](https://stackoverflow.com/questions/41848862/how-to-check-if-the-connection-to-mysql-through-rmysql-persists-or-not)
 
@@ -131,11 +145,12 @@ servers <- dbExecute(dbcon, "
 
 dropRestaurants <- dbExecute(dbcon, "DROP TABLE IF EXISTS Restaurants")
 
+# Following my db design notes, ServerAssignmentID is nullable just to accommodate takeout orders where a server is not required/recorded
 dbExecute(dbcon, "
   CREATE TABLE IF NOT EXISTS Visits (
-    VisitID             INTEGER           PRIMARY KEY,
-    RestaurantID        INTEGER           NOT NULL,
-    ServerAssignmentID  INTEGER           NULL,
+    VisitID INTEGER PRIMARY KEY,
+    RestaurantID INTEGER NOT NULL,
+    ServerAssignmentID INTEGER NULL,
     CustomerID          INTEGER           NULL,
     VisitDate           DATE          NOT NULL,
     VisitTime           TIME          NULL,
@@ -162,16 +177,16 @@ dbExecute(dbcon, "
 
 # --- LoyaltyCustomers ---
 
-# CustomerPhone is inputted as a 
-
 dropRestaurants <- dbExecute(dbcon, "DROP TABLE IF EXISTS Restaurants")
 
+# CustomerPhone is inputted as type TEXT to accommodate for the format of the
+# phone values in the data (since each has character parentheses around them)
 loyaltyCustomers <- dbExecute(dbcon, "
   CREATE TABLE IF NOT EXISTS LoyaltyCustomers (
     CustomerID INTEGER PRIMARY KEY AUTO_INCREMENT,
     CustomerEmail TEXT NOT NULL UNIQUE,
     CustomerPhone TEXT NOT NULL,
-    CustomerName     VARCHAR(100)  NOT NULL
+    CustomerName TEXT NOT NULL
   );
 ")
 
@@ -181,10 +196,15 @@ loyaltyCustomers <- dbExecute(dbcon, "
 
 dropRestaurants <- dbExecute(dbcon, "DROP TABLE IF EXISTS Restaurants")
 
+# Checking that the meal type is as expected from the levels in the data; I'm
+# using Aiven so the check values need to be in single quotes
 mealTypes <- dbExecute(dbcon, "
   CREATE TABLE IF NOT EXISTS MealTypes (
-    MealTypeID       INTEGER           AUTO_INCREMENT PRIMARY KEY,
-    MealType         VARCHAR(20)   NOT NULL UNIQUE
+    MealTypeID INTEGER PRIMARY KEY AUTO_INCREMENT,
+    MealType TEXT NOT NULL UNIQUE
+    
+    CONSTRAINT check_mealtype
+      CHECK MealType IN ('Breakfast', 'Lunch', 'Dinner', 'Take-Out')
   );
 ")
 
@@ -194,10 +214,14 @@ mealTypes <- dbExecute(dbcon, "
 
 dropRestaurants <- dbExecute(dbcon, "DROP TABLE IF EXISTS Restaurants")
 
+# Same as above, adding a check constraint for the payment method categories
 paymentMethods <- dbExecute(dbcon, "
   CREATE TABLE IF NOT EXISTS PaymentMethods (
-    PaymentMethodID  INTEGER           AUTO_INCREMENT PRIMARY KEY,
-    MethodType       VARCHAR(50)   NOT NULL UNIQUE
+    PaymentMethodID INTEGER PRIMARY KEY AUTO_INCREMENT,
+    MethodType TEXT NOT NULL UNIQUE
+    
+    CONSTRAINT check_methodtype
+      CHECK MethodType IN ('Cash', 'Credit Card', 'Mobile Payment')
   );
 ")
 
@@ -218,7 +242,7 @@ dbExecute(dbcon, "
     
     PRIMARY KEY (VisitID, GuestNumber),
     FOREIGN KEY (VisitID) REFERENCES Visits(VisitID)
-    CONSTRAINT gender_check
+    CONSTRAINT check_gender
       CHECK (Gender IN ('m', 'f', 'n', 'u'))
   );
 ")

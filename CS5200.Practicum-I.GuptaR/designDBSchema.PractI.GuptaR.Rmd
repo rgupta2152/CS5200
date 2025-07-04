@@ -5,15 +5,7 @@ date: "Summer Full 2025"
 output: pdf_document
 ---
 
-```{r setup, echo=FALSE, warning=FALSE, eval=FALSE, message=FALSE}
-# Setup the markdown so that none of the code chunks or their outputs are shown
-# in the knitted file (since that needs to only contain the relations from the
-# decomp)
-library(knitr)
-opts_chunk$set(echo = FALSE, eval = FALSE)
-```
-
-```{r references, echo=FALSE, eval=FALSE}
+```{r references, echo=FALSE}
 # I've created this separate section for the references I've used within
 # document ; these are just for my own and the grader's reference, and are
 # hidden within this chunk when the document gets knit so that just my design
@@ -32,7 +24,7 @@ opts_chunk$set(echo = FALSE, eval = FALSE)
 
 ## Functional Dependencies
 
-```{r loadData, echo=FALSE, eval=FALSE}
+```{r loadData, echo=FALSE}
 # Load the data; this is what I visualized in a new RStudio pane
 db <- read.csv("restaurant-visits-139874.csv")
 
@@ -75,7 +67,7 @@ Before coming to these conclusions, however, I needed to answer a few of my own 
 
 I first wanted to make sure I was aware of the columns/attributes from the original data that included NA/NULL values so I knew which attributes I should keep NULLABLE and which I should set to NOT NULL. I also noted the existence of sentinel values, which were mentioned later in the assignment instructions; I needed to be aware of these kinds of values since my plan is to script those values as NA or NULL values in my data cleaning steps. I get much more in-depth in my workflow explanation around identifying these sentinel values and how I deal with them within that cleanup script, however, for now I at least need to know which columns contain them so I can keep that in the back of my mind when building my ERD (and of course for the next step of realizing the database).
 
-```{r ExploreNAs, echo=FALSE, eval=FALSE}
+```{r ExploreNAs, echo=FALSE}
 # Before starting to decompose and normalize the data, I first wanted to explore
 # and understand the data some more, albeit still on a relatively basic level:
 
@@ -139,7 +131,7 @@ At this point, I'm looking closely at the superkeys from the FDs above and am ma
 - ***CustomerEmail:***
   - For the same reason as I've decided to create a RestaurantID surrogate for the Restaurants entity, I am also going to **create a CustomerID autoincremented surrogate PK for the Customers entity**.  
 
-```{r ExploreData, echo=FALSE, eval=FALSE}
+```{r ExploreData, echo=FALSE}
 # I also wanted to check for the uniqueness of values in the Restaurant col (to
 # make sure it can vaibly serve as a PK)
 restLevs <- levels(as.factor(db$Restaurant))
@@ -153,7 +145,7 @@ restLevs
   - I've also found that there is a many-to-many relationship between Restaurant and ServerEmpID. A few of the servers within the data are each associated with two different Restaurants, meaning that I'll need to **create a junction table between the Restaurants and Servers entities to resolve this M:N relationship**.
 
 
-```{r checkFDs, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
+```{r checkFDs, echo=FALSE, message=FALSE, warning=FALSE}
 # Load dplyr for some more EDA
 library(dplyr)
 
@@ -171,7 +163,7 @@ restRateFD
 
 ```
 
-```{r checkMtoM, echo=FALSE, eval=FALSE}
+```{r checkMtoM, echo=FALSE}
 # If Restaurant (or RestaurantID) is going to be the PK for my Restaurants
 # entity, I need to check for many-to-many relationships between this PK and its
 # dependent attributes (especially FKs to another column)
@@ -216,7 +208,7 @@ I've identified the following attributes to consist completely of categorical va
   - Credit Card
   - Mobile Payment
 
-```{r catCols, echo=FALSE, eval=FALSE}
+```{r catCols, echo=FALSE}
 # I've also noted some columns with a set number of categorical variables. After
 # parsing through the entire dataset (with each col as a factor), these are the
 # columns with categorical vars
@@ -233,7 +225,7 @@ sapply(catCols, function(col) {
 I've also noted that the current format of data inputted to the *Gender* column **breaks First Normal Form**, since it's basically just one long string of multiple values. As a refresher, 1NF states that "each attribute in the table can only hold a single value" and that "each row must represent a single, distinct entity or concept". By having several customer genders from the visiting party in a single string, the values are not atomic/indivisible. I'll tackle expanding each of these values into individual genders assigned to party members for each visit when I populate my db, however, for now, I have decided to **create a separate and new entity that connects the VisitID to the Genders within the visiting party**; this new entity will hold the a composite PK of VisitID (also the FK to the Visits entity) and GuestNumber (an index for each guest in the party), as well as the determinant Gender attribute to contain the gender for each guest. This setup now satisfies 1NF (up to 3NF), since all values are atomic and there are no transitive dependencies). Another note is that, even though Gender will essentially turn into a categorical variable and I have chosen to create lookup tables for the other categorical vars in this dataset, I will be assigning categorical fields to this attribute to maintain some overall simplicity.
 
 
-```{r genderLevels, echo=FALSE, eval=FALSE, warning=FALSE, message=FALSE}
+```{r genderLevels, echo=FALSE, warning=FALSE, message=FALSE}
 # Load for str_split()
 library(stringr)
 
@@ -275,9 +267,11 @@ Taking into account all the findings and justifications from the above sections,
 
 
 ```{r image-ref-for-in-text, echo = FALSE, message=FALSE, fig.align='center', out.width='1\\linewidth'}
+# Load library
+library(knitr)
 # From my reference; this has been commented out once knitted so the file runs
 # after submission
-knitr::include_graphics("PracticumI-ERD.pdf")
+include_graphics("PracticumI-ERD.pdf")
 ```
 
 
