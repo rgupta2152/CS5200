@@ -26,11 +26,16 @@ output: pdf_document
 
 ```{r loadData, echo=FALSE}
 # Load the data; this is what I visualized in a new RStudio pane
-db <- read.csv("restaurant-visits-139874.csv")
+
+db <- read.csv("restaurant-visits.csv")
+# ***************CHANGE TO ONLINE CV *********!!!!!!!!!!!
+
+# db <- read.csv("restaurant-visits-139874.csv")
 
 # I have this just in case I wanted to revert the db I'm exploring back to it's
 # original form
 dbTest <- db
+
 ```
 
 Here, I'll be exploring the functional dependencies (or a relationship between two columns where one directly determines the value of the other) from the original .csv of data. My initial method for this section was to simply spend time visually parsing the data (after loading the .csv into RStudio, I visualized the entire data within the RStudio Source Editor pane) before then moving onto some code-based exploration for the next decomposition steps.
@@ -101,6 +106,17 @@ suspectCols <- subset(db, select = names(db) %in% suspectColNames)
 sapply(suspectCols, function(col) {
   levels(as.factor(col))
 })
+
+# Added this a bit later into the practicum, but wanted to manually make sure
+# there were no sentinels in VisitDate; basically just checked the min and max
+# as.Date(), if there's a value from the year 9999 or 0000 it should show up
+# here
+maxVisit <- max(dbTest$VisitDate)
+minVisit <- min(dbTest$VisitDate)
+
+# This what those sentinels look like in the two cols where I know they already exist
+minStartDate <- min(dbTest$StartDateHired, na.rm = T)
+maxEndDate <- max(dbTest$EndDateHired, na.rm = T)
 ```
 
 After conducting some more EDA, these are the columns I've initially identified to have either NA values, empty string values, or character values that represent NAs (sentinel values):
@@ -190,7 +206,6 @@ restEmployees
 # This means I need to create a junction table between Restaurant and
 # ServerEmpID
 
-
 ```
 
 
@@ -238,6 +253,8 @@ library(stringr)
 genderLevels <- unique(unlist(str_split(db$Genders, "")))
 genderLevels
 
+# Not null check; commented out for relevance
+# anyNA(db$Genders)
 ```
 
 
@@ -306,10 +323,10 @@ include_graphics("PracticumI-ERD.pdf")
 - **Summary:** Contains all the servers and their dependent information.
   - **PK:** *ServerEmpID*
   - **Attributes:**
-    - *ServerName*
+    - *ServerName* (NULLABLE)
     - *StartDateHired* (NULLABLE)
     - *EndDateHired* (NULLABLE)
-    - *HourlyRate*
+    - *HourlyRate* (NULLABLE)
     - *ServerBirthDate* (NULLABLE)
     - *ServerTIN* (NULLABLE)
   - **Relationships:**
@@ -330,9 +347,9 @@ include_graphics("PracticumI-ERD.pdf")
     - *VisitDate* (NULLABLE) 
     - *VisitTime* (NULLABLE)
     - *PartySize*
-    - *WaitTime*
+    - *WaitTime* (NULLABLE)
     - *LoyaltyMember*
-    - *FoodBill*
+    - *FoodBill* 
     - *TipAmount*
     - *DiscountApplied*
     - *orderedAlcohol* (BOOL needs to be converted from current char format)
@@ -362,7 +379,7 @@ include_graphics("PracticumI-ERD.pdf")
 - **Summary:** Lookup table for the categorical MealType attribute
   - **PK:** *MealTypeID* (surrogate)
   - **Attributes:** 
-    - *MealType* {Breakfast, Lunch, Dinner, Take-Out}
+    - *MealType* {Breakfast, Lunch, Dinner, Take-Out} 
   - **Relationships:**
     - Each visit is associated with only one meal type
 

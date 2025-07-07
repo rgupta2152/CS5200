@@ -145,31 +145,34 @@ servers <- dbExecute(dbcon, "
 
 dropRestaurants <- dbExecute(dbcon, "DROP TABLE IF EXISTS Restaurants")
 
-# Following my db design notes, ServerAssignmentID is nullable just to accommodate takeout orders where a server is not required/recorded
+# Following my db design notes, ServerAssignmentID is nullable just to
+# accommodate takeout orders where a server is not required/recorded (and for
+# other cases where a server value is missing); essentially any columns where
+# values are missing in the data are nullable
 dbExecute(dbcon, "
   CREATE TABLE IF NOT EXISTS Visits (
     VisitID INTEGER PRIMARY KEY,
     RestaurantID INTEGER NOT NULL,
     ServerAssignmentID INTEGER NULL,
-    CustomerID          INTEGER           NULL,
-    VisitDate           DATE          NOT NULL,
-    VisitTime           TIME          NULL,
-    MealTypeID          INTEGER           NOT NULL,
-    PartySize           INTEGER           NOT NULL,
-    WaitTime            INTEGER           NOT NULL,
-    LoyaltyMember       BOOLEAN       NOT NULL,
-    FoodBill            DECIMAL(8,2)  NOT NULL,
-    TipAmount           DECIMAL(8,2)  NOT NULL,
-    DiscountApplied     DECIMAL(8,2)  NOT NULL,
-    PaymentMethodID     INTEGER           NOT NULL,
-    OrderedAlcohol      BOOLEAN       NOT NULL,
-    AlcoholBill         DECIMAL(8,2)  NOT NULL,
+    CustomerID INTEGER NULL,
+    MealTypeID INTEGER NOT NULL,
+    PaymentMethodID INTEGER NOT NULL,
+    VisitDate DATE NOT NULL,
+    VisitTime TIME NULL,
+    PartySize INTEGER NOT NULL,
+    WaitTime INTEGER NOT NULL,
+    LoyaltyMember BOOLEAN NOT NULL,
+    FoodBill NUMERIC NOT NULL,
+    TipAmount NUMERIC NOT NULL,
+    DiscountApplied NUMERIC NOT NULL,
+    OrderedAlcohol BOOLEAN NOT NULL,
+    AlcoholBill NUMERIC NOT NULL,
     
-    FOREIGN KEY (RestaurantID)       REFERENCES Restaurants(RestaurantID),
+    FOREIGN KEY (RestaurantID) REFERENCES Restaurants(RestaurantID),
     FOREIGN KEY (ServerAssignmentID) REFERENCES RestaurantServers(ServerAssignmentID),
-    FOREIGN KEY (CustomerID)         REFERENCES LoyaltyCustomers(CustomerID),
-    FOREIGN KEY (MealTypeID)         REFERENCES MealTypes(MealTypeID),
-    FOREIGN KEY (PaymentMethodID)    REFERENCES PaymentMethods(PaymentMethodID)
+    FOREIGN KEY (CustomerID) REFERENCES LoyaltyCustomers(CustomerID),
+    FOREIGN KEY (MealTypeID) REFERENCES MealTypes(MealTypeID),
+    FOREIGN KEY (PaymentMethodID) REFERENCES PaymentMethods(PaymentMethodID)
   );
 ")
 
@@ -180,7 +183,11 @@ dbExecute(dbcon, "
 dropRestaurants <- dbExecute(dbcon, "DROP TABLE IF EXISTS Restaurants")
 
 # CustomerPhone is inputted as type TEXT to accommodate for the format of the
-# phone values in the data (since each has character parentheses around them)
+# phone values in the data (since each has character parentheses around them).
+# Email is unique just based on business context
+
+# This whole entity is for loytaly customers only, so each row needs to contain
+# values for all cols; everything is set to NOT NULL
 loyaltyCustomers <- dbExecute(dbcon, "
   CREATE TABLE IF NOT EXISTS LoyaltyCustomers (
     CustomerID INTEGER PRIMARY KEY AUTO_INCREMENT,
