@@ -9,11 +9,11 @@ library(RMySQL)
 
 
 # Parameters for dbconnection
-db_user <- 
-db_password <- 
-db_name <- 
-db_host <- 
-db_port <- 
+db_user <- "avnadmin"
+db_password <- "AVNS_t3n1vp1Ph95m4pJ3qcH"
+db_name <- "defaultdb"
+db_host <- "mysql-cs5200-practicum1-cs5200-practicum1-rgupta.c.aivencloud.com"
+db_port <- 27986
 
 
 # Connect to the db 

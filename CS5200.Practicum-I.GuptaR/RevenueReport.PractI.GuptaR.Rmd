@@ -1,0 +1,164 @@
+---
+title: "Analyze Sales"
+author: "Rohan Gupta"
+date: "Summer Full 2025"
+output:
+  pdf_document: default
+subtitle: "CS5200 Practicum I"
+---
+
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+if (!require("RMySQL")) install.packages("RMySQL")
+if (!require("DBI")) install.packages("DBI")
+if (!require("kableExtra")) install.packages("kableExtra")
+library(RSQLite)
+library(DBI)
+library(kableExtra)
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+# Connect to the database locally
+# Parameters for dbconnection
+db_user <- "avnadmin"
+db_password <- "AVNS_t3n1vp1Ph95m4pJ3qcH"
+db_name <- "defaultdb"
+db_host <- "mysql-cs5200-practicum1-cs5200-practicum1-rgupta.c.aivencloud.com"
+db_port <- 27986
+
+
+# Connect to the db 
+dbcon <-  dbConnect(drv = MySQL(), 
+                    user = db_user, 
+                    password = db_password, 
+                    dbname = db_name, 
+                    host = db_host, 
+                    port = db_port)
+
+```
+
+
+## Analysis by Restaurant
+
+```{r analysisRest, echo=FALSE}
+
+# For this query, I think it's important that I explain my understanding of how
+# I differentiated between "total number of unique customers" and "total number
+# of customers in the loyalty program":
+  
+# Total Loyalty Members: This is essentially just the count of rows where there
+# is some value for CustomerID in the observation, which means that the customer
+# has saved information in the LoyaltyCustomers entity and is therefore a
+# loyalty member
+
+# Total Unique Customers: For this, I've assumed that every anonymous visit is a
+# "unique" customer, since we have no extra data about these customers to
+# differentiate whether they are repeat customers or not. I've simply added the
+# known loyalty member customer count to this value to get an idea of what the
+# total unique customer count might look like
+
+restAnalysis <- dbGetQuery(dbcon, "
+  SELECT
+    r.RestaurantName,
+    -- Total visit count
+    COUNT(v.VisitID) AS TotalVisits,
+    -- Total unique customers, which are really the number of loyalty customers
+    COUNT(DISTINCT v.CustomerID) AS LoyaltyCustomers,
+    -- Total visits where there is no loyalty info about the customer plus the 
+    -- number of known customers to estimate the total unique customer count
+    SUM(CASE 
+          WHEN v.CustomerID IS NULL 
+            THEN 1 
+          ELSE 0 
+          END) + COUNT(DISTINCT v.CustomerID) AS UniqueCustomers,
+    SUM(v.FoodBill) AS TotalFoodBill,
+    SUM(v.AlcoholBill) AS TotalAlcoholBill
+  FROM Visits v
+    JOIN Restaurants r ON (v.RestaurantID = r.RestaurantID)
+  GROUP BY r.RestaurantName
+  ORDER BY r.RestaurantName;
+")
+
+# [KableExtra Reference](https://stackoverflow.com/questions/77971960/how-to-center-align-headers-and-sub-headers-in-kableextra)
+# [Center when Knitting to PDF Reference](https://stackoverflow.com/questions/33401042/centering-the-table-generated-by-kable-function-of-knitr-package)
+
+# I used similar a similar kable format as my sqldf assignment
+restAnalysis %>%
+  kable(caption = "DB Analysis by Restaurant",
+        align = "c",
+        format.args = list(big.mark = ",")) %>%
+  kable_classic(c("striped", "hover")) %>% 
+  kable_styling(font_size = 11, 
+                full_width = FALSE, 
+                position = "center", 
+                latex_options = c("striped", "hold_position")) 
+
+```
+
+
+
+## Analysis by Year
+
+
+```{r yearAnalysis, echo=FALSE}
+# Here, I'm just grouping by year (and selecting just the year from the DATE
+# type col VisitDate) and calculating the rest of the required values
+
+yearAnalysis <- dbGetQuery(dbcon, "SELECT 
+  YEAR(VisitDate) AS Year,
+  SUM(FoodBill + AlcoholBill) AS TotalRevenue,
+  AVG(FoodBill + AlcoholBill) AS AvgPartySpending,
+  AVG(PartySize) AS AvgPartySize
+FROM Visits
+GROUP BY YEAR(VisitDate)
+ORDER BY Year;
+")
+
+yearAnalysis %>%
+  kable(caption = "DB Analysis by Year",
+        align = "c",
+        format.args = list(big.mark = ",")) %>%
+  kable_classic(c("striped", "hover")) %>% 
+  kable_styling(font_size = 14, 
+                full_width = FALSE, 
+                position = "center", 
+                latex_options = c("striped", "hold_position"))
+
+```
+
+
+
+## Trend by Year
+
+
+```{r yearPlot, echo=FALSE}
+
+# [Reference for Adding Text to r plot](https://www.geeksforgeeks.org/r-language/adding-text-to-plots-in-r-programming-text-and-mtext-function/)
+# [Reference for adjusting plot to avoid text cutoff](https://www.geeksforgeeks.org/r-language/set-axis-limits-of-plot-in-r/)
+
+# Plot the graph using the plot() function
+plot(x = yearAnalysis$Year, 
+     y = yearAnalysis$TotalRevenue,
+     # This is to create a line graph connected by dots
+     type = "o",
+     main = "Total Revenue by Year",
+     xlab = "Year",
+     ylab = "Total Revenue",
+     col = "blue",
+     # This is the adjustment I made to increase the limits of the x axis on
+     # both ends to avoid cutting off text values
+     xlim = c(min(yearAnalysis$Year), max(yearAnalysis$Year) + 0.7))
+
+# I also wanted to add annotations showing the actual prices for each year (from
+# reference above)
+text(x = yearAnalysis$Year,
+     y = yearAnalysis$TotalRevenue,
+     labels = paste0("$", format(round(yearAnalysis$TotalRevenue),
+                                 big.mark = ",")),
+     # pos = 4 means to place the text to the right the points
+     pos = 4,
+     # font size
+     cex = 0.75,
+     col = "black")
+```
+
