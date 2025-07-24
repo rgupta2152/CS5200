@@ -1,0 +1,392 @@
+---
+title: "Assignment / Explore Query Planning and Indexing"
+author: "Rohan Gupta"
+date: "Summer Full 2025"
+output:
+  pdf_document: default
+---
+
+```{r dbconnect, echo=TRUE, warning=FALSE, message=FALSE}
+# Load libs to connect to the db
+library(RSQLite)
+library(DBI)
+
+# Connect to the db
+dbcon <- dbConnect(SQLite(), "sakila.db")
+
+# Check the connection
+dbIsValid(dbcon)
+
+```
+
+## Question 1
+
+
+
+```{r}
+
+# Start by dropping the index I created in question 5
+dropIndex <- dbExecute(dbcon, "DROP INDEX IF EXISTS TitleIndex;")
+
+# Then check that only the original indexes remain within the db
+listIndexes <- dbGetQuery(dbcon, "
+SELECT
+  type, 
+  name, 
+  tbl_name, 
+  sql
+FROM sqlite_master
+WHERE type = 'index';  
+")
+
+listIndexes
+
+```
+
+```{r q1_query}
+# Here, I'm simply grouping by the Rating values and getting a count of all
+# filmsIDs for each rating
+filmsPerRating <- dbGetQuery(dbcon, "
+SELECT
+  RATING AS Rating,
+  COUNT(FILM_ID) AS FilmCount
+FROM FILM
+GROUP BY 
+  RATING
+")
+
+filmsPerRating
+```
+
+
+
+
+
+## Question 2
+
+In the below query plan, we can see that, in order to execute this query, the entire FILM table has been scanned and a B-tree was constructed for the group by clause. 
+
+```{r}
+# Adding the EXPLAIN QUERY PLAN statement to the beginning of previous query
+# displays this plan (referencing lesson 60.551)
+q1QueryPlan <- dbGetQuery(dbcon, "
+EXPLAIN QUERY PLAN
+SELECT
+  RATING AS Rating,
+  COUNT(FILM_ID) AS FilmCount
+FROM FILM
+GROUP BY 
+  RATING;
+")
+
+q1QueryPlan
+```
+
+
+
+## Question 3
+
+```{r}
+# I'm selecting the cols of features I want to display and using WHERE to
+# specify the title name
+zorro <- dbGetQuery(dbcon, "
+SELECT
+  TITLE,
+  LENGTH,
+  RENTAL_RATE,
+  RELEASE_YEAR
+FROM FILM
+WHERE
+  TITLE = 'ZORRO ARK';
+")
+
+zorro
+```
+
+
+
+
+
+## Question 4
+
+
+```{r}
+# Again, I'm adding EXPLAIN QUERY PLAN to the start of the query from the
+# previous q
+q3QueryPlan <- dbGetQuery(dbcon, "
+EXPLAIN QUERY PLAN
+SELECT
+  TITLE,
+  LENGTH,
+  RENTAL_RATE,
+  RELEASE_YEAR
+FROM FILM
+WHERE
+  TITLE = 'ZORRO ARK';
+")
+
+q3QueryPlan
+
+```
+
+
+
+
+## Question 5
+
+
+```{r}
+# Here, I'm simply creating an index for the TITLE col in the FILM entity
+# (referencing format from lesson 60.611)
+titleIndex <- dbExecute(dbcon, "
+CREATE INDEX TitleIndex
+  ON FILM (TITLE);
+")
+
+```
+
+
+
+## Question 6
+
+```{r}
+# Now that I've added the index, I'll rerun the query from q4 to see if the
+# query plan has changed as a result of the index
+q3QueryPlan2 <- dbGetQuery(dbcon, "
+EXPLAIN QUERY PLAN
+SELECT
+  TITLE,
+  LENGTH,
+  RENTAL_RATE,
+  RELEASE_YEAR
+FROM FILM
+WHERE
+  TITLE = 'ZORRO ARK';
+")
+
+q3QueryPlan2
+
+```
+
+
+
+## Question 7
+
+We can clearly see that the query plans become different when introducing the index to the FILM entity; the original query, which does not use the index, accesses the data using a SCAN, meaning that every row of the FILM table is parsed over. However, in the output of the second "EXPLAIN QUERY PLAN..." statement which **does** have access to the index to access the data, we can see that the *detail* column of the output show the data was SEARCHED *using the TitleIndex I created*. 
+
+
+## Question 8
+
+The first method that I employed to get the runtime values both with and without using the index was the format from lesson 6.134 that uses Sys.time to get the start and end times within a chunk, which I can then use to calculate the runtime. I started by getting rid of the index first and running the query without it, then reintroducing the index and re-running the same query. The runtime values that I got from this method were quite inconclusive, but I opted to keep this work in my submission anyway and use a different option from our lesson later below:
+
+```{r}
+# Start by dropping the previous index on title
+dropIndex <- dbExecute(dbcon, "DROP INDEX TitleIndex;")
+```
+
+
+```{r}
+# Set a seed
+set.seed(1)
+
+# Get the start time of this chunk
+startTime <- Sys.time()
+
+# Run the query without the index present
+qWithoutIndex <- dbGetQuery(dbcon, "
+SELECT
+  TITLE,
+  LENGTH,
+  RENTAL_RATE,
+  RELEASE_YEAR
+FROM FILM
+WHERE
+  TITLE = 'ZORRO ARK';
+")
+qWithoutIndex
+
+# Then get the end time of query
+endTime <- Sys.time()
+
+# Calculate the completion time 
+t.query <- endTime - startTime
+
+# And display the total time for the query (again, format directly from lesson
+# 6.134)
+cat("Time elapsed: ", round((t.query), 5), " sec")
+
+```
+
+
+
+
+```{r}
+# Now, I'll reintroduce the index from question 5
+titleIndex <- dbExecute(dbcon, "
+CREATE INDEX TitleIndex
+  ON FILM (TITLE);
+")
+
+```
+
+
+```{r}
+# And run the q3 query again following this indexing; start with the start time
+startTime <- Sys.time()
+
+# Run the query
+qWithIndex <- dbGetQuery(dbcon, "
+SELECT
+  TITLE,
+  LENGTH,
+  RENTAL_RATE,
+  RELEASE_YEAR
+FROM FILM
+WHERE
+  TITLE = 'ZORRO ARK';
+")
+qWithIndex
+
+# Get the end time and total time
+endTime <- Sys.time()
+t.query <- endTime - startTime
+
+# Print the completion time
+cat("Time elapsed: ", round((t.query), 5), " sec")
+```
+
+
+```{r}
+dbGetQuery(dbcon, "SELECT Count(*) FROM FILM")
+
+```
+
+After running the above two timed queries using Sys.time, I found that, since the table is relatively small with only 1000 observations, the query times with and without the index were extremely close to one another and overall pretty inconclusive with several runs. I'm assuming that this is because of the small size of the relation and the fact that smaller relations can be stored completely on memory, making these smaller queries much quicker (and therefore making it difficult to point out any consistent and noticeable differences in completion time between the index and scanning query). For this reason, given the other options in our lesson module, I've decided to run the same exact runtime tests using microbenchmark (which by default runs the query 100 times and provides runtime metrics across all these trials) on the above queries, starting without an index and moving on to adding an index:
+
+[Reference for how to use microbenchmark and interpret output](https://www.statology.org/r-microbenchmark/)
+
+[Reference to convert microbench output to a subsettable object](https://stackoverflow.com/questions/29323811/microbenchmark-as-data-frame-or-matrix)
+
+```{r}
+library(microbenchmark)
+
+# Once again starting by removing my index
+dropIndex <- dbExecute(dbcon, "DROP INDEX TitleIndex;")
+
+# Now, using microbenchmark
+withoutIndex <- microbenchmark(dbGetQuery(dbcon, "
+SELECT
+  TITLE,
+  LENGTH,
+  RENTAL_RATE,
+  RELEASE_YEAR
+FROM FILM
+WHERE
+  TITLE = 'ZORRO ARK';
+"))
+
+# Add the index back
+titleIndex <- dbExecute(dbcon, "
+CREATE INDEX TitleIndex
+  ON FILM (TITLE);
+")
+
+# And test the runtime with this index
+withIndex <- microbenchmark(dbGetQuery(dbcon, "
+SELECT
+  TITLE,
+  LENGTH,
+  RENTAL_RATE,
+  RELEASE_YEAR
+FROM FILM
+WHERE
+  TITLE = 'ZORRO ARK';
+"))
+```
+
+
+These are the runtime results of the query without the index:
+
+
+```{r}
+withoutResults <- summary(withoutIndex)
+withoutResults
+
+# Get the mean from the output so I can get the difference between the two
+# outputs in markdown
+withoutMean <- withoutResults$mean
+
+```
+
+
+And these are the metrics when using the index:
+
+```{r}
+withResults <- summary(withIndex)
+withResults
+
+withMean <- withResults$mean
+```
+
+We can see that, across all of the metrics (most notably the mean value across all 100 timed queries) there is a significant decrease in runtime when the query uses the index to search the table instead of scanning the table row by row. The reduction in mean runtime from scanning without an index to searching with an index across the 100 executions is `r (withoutMean - withMean)` microseconds. We know from the lesson that SQLite uses "self-balancing B-trees for the structure of its indexes" which reduces the amount of data that needs to be loaded to memory when accessing the data, resulting in overall less memory usage and disc accesses (less cost, which means a quicker runtime, so these results make sense).
+
+
+
+
+
+## Question 9
+
+[Reference for Concatenating Result Query Values in SQLite](https://stackoverflow.com/questions/74774637/how-do-i-use-concat-on-sql-lite-environment)
+
+
+```{r}
+# Here, I'm using the concatenate operator from the reference to select the
+# first and last names of the actors together as a single value. Then, in the
+# WHERE, I'm converting every last time to an uppercase to ignore case changes
+# from the table and selecting last names that start with "WIL", followed by any
+# other characters
+wilQuery <- dbGetQuery(dbcon, "
+SELECT
+  a.FIRST_NAME || ' ' || a.LAST_NAME AS ActorFullName,
+  COUNT(*) AS FilmCount
+FROM ACTOR a
+JOIN FILM_ACTOR f ON (a.ACTOR_ID = f.ACTOR_ID)
+WHERE 
+  UPPER(a.LAST_NAME) LIKE 'WIL%'
+GROUP BY a.ACTOR_ID;
+")
+
+wilQuery
+
+```
+
+
+
+## Question 10
+
+We can see from the query plan below that the query from q9 **does not** use the index that I've created; this is because, as stated in the lesson, when a *LIKE* keyword is used, SQLite will not use the index I created and is instead scanning every row of the ACTOR table in this query (then using one of the pre-created indexes listed in the first question). I think that there are a few reasons for this: 1) I am accessing completely different tables from where the TitleIndex was placed from q5, and 2) *even if there was* a user generated index for the non-prime values in this query (for example if I created an index for LAST_NAME in the ACTOR entity), the query would still use a SCAN or SEARCH (row by row) with a pre-created index since the use of the LIKE keyword omits the use of indexes in SQLite. 
+
+```{r}
+# This is the exact same query as above with an EXPLAIN QUERY PLAN statement
+# attached
+wilQueryPlan <- dbGetQuery(dbcon, "
+EXPLAIN QUERY PLAN
+SELECT
+  a.FIRST_NAME || ' ' || a.LAST_NAME AS ActorFullName,
+  COUNT(*) AS FilmCount
+FROM ACTOR a
+JOIN FILM_ACTOR f ON (a.ACTOR_ID = f.ACTOR_ID)
+WHERE 
+  UPPER(a.LAST_NAME) LIKE 'WIL%'
+GROUP BY a.ACTOR_ID;
+")
+
+wilQueryPlan
+
+```
+
+```{r}
+# Disconnect from the db
+dbDisconnect(dbcon)
+```
+
